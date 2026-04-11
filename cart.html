@@ -249,7 +249,10 @@
 
                 <label>📅 Желаемая дата:</label>
                 <input type="date" id="delivery-date" class="int">
-
+                <label style="display: flex; align-items: center; gap: 10px; margin: 15px 0;">
+                    <input type="checkbox" id="consentCheckbox" required>
+                    Я согласен на <a href="privacy.html" target="_blank">обработку персональных данных</a> (имя, телефон, адрес)
+                </label>
                 <button type="submit" id="submit-order" class="submit-btn">✅ Оформить заказ</button>
             </form>
         </div>
@@ -283,7 +286,7 @@
         }
 
         // === КОНСТАНТЫ И ПЕРЕМЕННЫЕ ===
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwN8Jp8m3rtAbrGf9-5dZtpmmNzLuEhS7tEcFGQD9FUBjUBNYULjWB6SiYnJKxx79pM2A/exec';
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxa7UgnStMRD8-EuCUlJJtZqEvASJk0eVYO2cv7oGDec0Wvan5Hggih9NKB5syRkkfjDw/exec';
         let cart = JSON.parse(localStorage.getItem('cart')) || [];
         let isSubmitting = false;
 
@@ -396,6 +399,10 @@
         });
 
         document.getElementById('order-form')?.addEventListener('submit', async (e) => {
+            if (!document.getElementById('consentCheckbox').checked) {
+                showMessage('❌ Нужно дать согласие на обработку данных', true);
+                return;
+            }
             e.preventDefault();
             
             if (isSubmitting) {
