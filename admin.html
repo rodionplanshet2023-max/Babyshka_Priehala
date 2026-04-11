@@ -80,19 +80,6 @@
         .user-list { margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; }
         .user-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
         
-        .notification-badge {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background-color: #d2691e;
-            color: white;
-            padding: 10px 15px;
-            border-radius: 30px;
-            font-size: 12px;
-            z-index: 1000;
-            cursor: pointer;
-        }
-        
         @media (max-width: 768px) {
             .navbar { flex-direction: column; gap: 15px; text-align: center; }
             .nav-links { justify-content: center; }
@@ -168,7 +155,6 @@
             <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 20px;">
                 <button id="refresh-orders" class="refresh-btn">🔄 Обновить</button>
                 <button id="export-orders" class="btn-secondary">📎 Выгрузить заказы (JSON)</button>
-                <button id="test-notification" class="btn-secondary">🔔 Тест уведомления</button>
                 <div class="sort-buttons">
                     <span>📅 Сортировать:</span>
                     <button id="sort-newest" class="sort-btn active">🆕 Сначала новые</button>
@@ -180,8 +166,6 @@
         </div>
     </div>
 
-    <div id="notification-status" class="notification-badge" style="display: none;">🔔 Уведомления включены</div>
-
     <script>
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxa7UgnStMRD8-EuCUlJJtZqEvASJk0eVYO2cv7oGDec0Wvan5Hggih9NKB5syRkkfjDw/exec';
         
@@ -190,62 +174,6 @@
         let currentSort = 'newest';
         let currentStatus = 'all';
         let isLoading = false;
-
-        // ========== УВЕДОМЛЕНИЯ ==========
-        let lastOrderCount = 0;
-        let notificationSound = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
-
-        function requestNotificationPermission() {
-            if ('Notification' in window) {
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        document.getElementById('notification-status').style.display = 'block';
-                        setTimeout(() => {
-                            document.getElementById('notification-status').style.display = 'none';
-                        }, 3000);
-                    }
-                });
-            }
-        }
-
-        function sendNotification(title, body, orderId) {
-            if (Notification.permission === 'granted') {
-                const notification = new Notification(title, {
-                    body: body,
-                    icon: 'https://via.placeholder.com/64?text=🍰',
-                    tag: 'order-' + orderId,
-                    requireInteraction: true
-                });
-                
-                notificationSound.play().catch(e => console.log('Звук не воспроизведён'));
-                
-                notification.onclick = function() {
-                    window.focus();
-                    this.close();
-                };
-            }
-        }
-
-        function checkNewOrders() {
-            fetch(GOOGLE_SCRIPT_URL)
-                .then(response => response.json())
-                .then(orders => {
-                    if (orders.length > lastOrderCount && lastOrderCount > 0) {
-                        const newOrders = orders.slice(0, orders.length - lastOrderCount);
-                        newOrders.forEach(order => {
-                            sendNotification(
-                                '🍰 Новый заказ #' + order.orderId,
-                                `${order.name || 'Клиент'} | ${order.items || 'Заказ'} | ${order.total || 0} ₽`,
-                                order.orderId
-                            );
-                        });
-                        // Обновляем список заказов
-                        loadOrdersFromGoogle();
-                    }
-                    lastOrderCount = orders.length;
-                })
-                .catch(err => console.log('Ошибка проверки:', err));
-        }
 
         // ========== ОСНОВНЫЕ ФУНКЦИИ ==========
         const DEMO_USERS = {
@@ -264,13 +192,13 @@
             }
             
             try {
-                await fetch(GOOGLE_SCRIPT_URL, {
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
-                return { status: 'ok' };
+                const result = await response.json();
+                return result;
             } catch (error) {
                 console.error('API Error:', error);
                 return { status: 'error', message: error.message };
@@ -292,8 +220,6 @@
                 currentUser = { username: username, role: result.role, name: username };
                 sessionStorage.setItem('admin_user', JSON.stringify(currentUser));
                 showAdminPanel();
-                // Запрашиваем разрешение на уведомления после входа
-                requestNotificationPermission();
             } else {
                 document.getElementById('login-error').textContent = '❌ Неверный логин или пароль';
             }
@@ -311,12 +237,6 @@
             }
             
             loadOrdersFromGoogle();
-            // Запускаем проверку новых заказов
-            setInterval(checkNewOrders, 30000);
-            // Получаем начальное количество заказов
-            fetch(GOOGLE_SCRIPT_URL)
-                .then(response => response.json())
-                .then(orders => lastOrderCount = orders.length);
         }
 
         function logout() {
@@ -358,16 +278,29 @@
 
         async function updateOrderStatus(orderId, newStatus) {
             try {
-                await callAPI('updateStatus', { orderId, status: newStatus });
-                showMessage(`✅ Статус заказа #${orderId} изменён на "${newStatus}"`);
-                const order = allOrders.find(o => o.orderId == orderId);
-                if (order) order.status = newStatus;
-                updateStats();
-                renderOrders();
-                return true;
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'updateStatus', orderId: orderId, status: newStatus })
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'ok') {
+                    // Обновляем статус в локальном массиве
+                    const order = allOrders.find(o => o.orderId == orderId);
+                    if (order) order.status = newStatus;
+                    
+                    updateStats();
+                    renderOrders();
+                    showMessage(`✅ Статус заказа #${orderId} изменён на "${newStatus}"`);
+                } else {
+                    showMessage(`❌ Ошибка: статус не сохранён`, true);
+                    loadOrdersFromGoogle();
+                }
             } catch (error) {
-                showMessage(`❌ Ошибка: статус не сохранён`, true);
-                return false;
+                showMessage(`❌ Ошибка: ${error.message}`, true);
+                loadOrdersFromGoogle();
             }
         }
 
@@ -415,7 +348,7 @@
                                 <p><strong>${deliveryText}</strong></p>
                                 ${addressHtml}
                                 <p><strong>📅 Дата доставки:</strong> ${order.deliveryDate || 'не указана'}</p>
-                                <p><strong>🕒 Создан:</strong> ${order.time}</p>
+                                <p><strong>🕒 Создан:</strong> ${new Date(order.time).toLocaleString()}</p>
                             </div>
                             <div class="order-items">
                                 <strong>📦 Состав заказа:</strong>
@@ -506,16 +439,6 @@
         });
         
         document.getElementById('refresh-orders')?.addEventListener('click', () => loadOrdersFromGoogle());
-        
-        document.getElementById('test-notification')?.addEventListener('click', () => {
-            if (Notification.permission === 'granted') {
-                sendNotification('🔔 Тест уведомления', 'Если вы видите это сообщение — уведомления работают!', 999);
-                showMessage('✅ Тестовое уведомление отправлено');
-            } else {
-                showMessage('❌ Сначала разрешите уведомления. Нажмите на иконку 🔔 в адресной строке.', true);
-                requestNotificationPermission();
-            }
-        });
         
         document.getElementById('sort-newest')?.addEventListener('click', () => {
             currentSort = 'newest';
