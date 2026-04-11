@@ -190,11 +190,10 @@
         let currentSort = 'newest';
         let currentStatus = 'all';
         let isLoading = false;
-        
-        // ========== УВЕДОМЛЕНИЯ ==========
         let lastOrderCount = 0;
         let notificationSound = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
-
+        
+        // ========== УВЕДОМЛЕНИЯ ==========
         function requestNotificationPermission() {
             if ('Notification' in window) {
                 Notification.requestPermission().then(permission => {
@@ -229,9 +228,32 @@
             }
         }
 
-        function checkNewOrders() {
-            fetch(GOOGLE_SCRIPT_URL, { mode: 'no-cors' })
-                .catch(() => {});
+        async function checkNewOrders() {
+            try {
+                const response = await fetch(GOOGLE_SCRIPT_URL);
+                const orders = await response.json();
+                
+                if (orders.length > lastOrderCount && lastOrderCount > 0) {
+                    const newOrdersCount = orders.length - lastOrderCount;
+                    showMessage(`🔔 Новых заказов: ${newOrdersCount}`, false);
+                    
+                    if (Notification.permission === 'granted') {
+                        const notification = new Notification('🍰 Новый заказ!', {
+                            body: `Поступило ${newOrdersCount} новых заказов`,
+                            icon: 'https://emojicdn.elk.sh/🍰',
+                            requireInteraction: true
+                        });
+                        notificationSound.play().catch(e => console.log('Звук не воспроизведён'));
+                        notification.onclick = () => window.focus();
+                    }
+                    
+                    loadOrdersFromGoogle();
+                }
+                
+                lastOrderCount = orders.length;
+            } catch (error) {
+                console.log('Ошибка проверки заказов:', error);
+            }
         }
 
         // ========== ОСНОВНЫЕ ФУНКЦИИ ==========
@@ -299,8 +321,8 @@
             requestNotificationPermission();
             
             setInterval(() => {
-                loadOrdersFromGoogle();
-            }, 60000);
+                checkNewOrders();
+            }, 30000);
         }
 
         function logout() {
@@ -330,20 +352,6 @@
                 const response = await fetch(GOOGLE_SCRIPT_URL);
                 const orders = await response.json();
                 allOrders = Array.isArray(orders) ? orders : [];
-                
-                // Обновляем lastOrderCount для уведомлений
-                if (allOrders.length > lastOrderCount && lastOrderCount > 0) {
-                    const newOrders = allOrders.slice(0, allOrders.length - lastOrderCount);
-                    newOrders.forEach(order => {
-                        sendNotification(
-                            '🍰 Новый заказ #' + order.orderId,
-                            `${order.name || 'Клиент'} | ${order.items || 'Заказ'} | ${order.total || 0} ₽`,
-                            order.orderId
-                        );
-                    });
-                }
-                lastOrderCount = allOrders.length;
-                
                 updateStats();
                 renderOrders();
             } catch (error) {
@@ -363,7 +371,6 @@
                     body: JSON.stringify({ action: 'updateStatus', orderId: orderId, status: newStatus })
                 });
                 
-                // Оптимистичное обновление
                 const order = allOrders.find(o => o.orderId == orderId);
                 if (order) order.status = newStatus;
                 
