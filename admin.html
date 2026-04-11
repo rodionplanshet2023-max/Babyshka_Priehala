@@ -215,7 +215,7 @@
             if (Notification.permission === 'granted') {
                 const notification = new Notification(title, {
                     body: body,
-                    icon: 'https://via.placeholder.com/64?text=🍰',
+                    icon: 'https://emojicdn.elk.sh/🍰',
                     tag: 'order-' + orderId,
                     requireInteraction: true
                 });
@@ -230,23 +230,8 @@
         }
 
         function checkNewOrders() {
-            fetch(GOOGLE_SCRIPT_URL)
-                .then(response => response.json())
-                .then(orders => {
-                    if (orders.length > lastOrderCount && lastOrderCount > 0) {
-                        const newOrders = orders.slice(0, orders.length - lastOrderCount);
-                        newOrders.forEach(order => {
-                            sendNotification(
-                                '🍰 Новый заказ #' + order.orderId,
-                                `${order.name || 'Клиент'} | ${order.items || 'Заказ'} | ${order.total || 0} ₽`,
-                                order.orderId
-                            );
-                        });
-                        loadOrdersFromGoogle();
-                    }
-                    lastOrderCount = orders.length;
-                })
-                .catch(err => console.log('Ошибка проверки:', err));
+            fetch(GOOGLE_SCRIPT_URL, { mode: 'no-cors' })
+                .catch(() => {});
         }
 
         // ========== ОСНОВНЫЕ ФУНКЦИИ ==========
@@ -266,13 +251,13 @@
             }
             
             try {
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
+                    mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
-                const result = await response.json();
-                return result;
+                return { status: 'ok' };
             } catch (error) {
                 console.error('API Error:', error);
                 return { status: 'error', message: error.message };
@@ -313,11 +298,9 @@
             loadOrdersFromGoogle();
             requestNotificationPermission();
             
-            // Запускаем проверку новых заказов
-            setInterval(checkNewOrders, 30000);
-            fetch(GOOGLE_SCRIPT_URL)
-                .then(response => response.json())
-                .then(orders => lastOrderCount = orders.length);
+            setInterval(() => {
+                loadOrdersFromGoogle();
+            }, 60000);
         }
 
         function logout() {
@@ -347,6 +330,20 @@
                 const response = await fetch(GOOGLE_SCRIPT_URL);
                 const orders = await response.json();
                 allOrders = Array.isArray(orders) ? orders : [];
+                
+                // Обновляем lastOrderCount для уведомлений
+                if (allOrders.length > lastOrderCount && lastOrderCount > 0) {
+                    const newOrders = allOrders.slice(0, allOrders.length - lastOrderCount);
+                    newOrders.forEach(order => {
+                        sendNotification(
+                            '🍰 Новый заказ #' + order.orderId,
+                            `${order.name || 'Клиент'} | ${order.items || 'Заказ'} | ${order.total || 0} ₽`,
+                            order.orderId
+                        );
+                    });
+                }
+                lastOrderCount = allOrders.length;
+                
                 updateStats();
                 renderOrders();
             } catch (error) {
@@ -359,25 +356,20 @@
 
         async function updateOrderStatus(orderId, newStatus) {
             try {
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
+                    mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'updateStatus', orderId: orderId, status: newStatus })
                 });
                 
-                const result = await response.json();
+                // Оптимистичное обновление
+                const order = allOrders.find(o => o.orderId == orderId);
+                if (order) order.status = newStatus;
                 
-                if (result.status === 'ok') {
-                    const order = allOrders.find(o => o.orderId == orderId);
-                    if (order) order.status = newStatus;
-                    
-                    updateStats();
-                    renderOrders();
-                    showMessage(`✅ Статус заказа #${orderId} изменён на "${newStatus}"`);
-                } else {
-                    showMessage(`❌ Ошибка: статус не сохранён`, true);
-                    loadOrdersFromGoogle();
-                }
+                updateStats();
+                renderOrders();
+                showMessage(`✅ Статус заказа #${orderId} изменён на "${newStatus}"`);
             } catch (error) {
                 showMessage(`❌ Ошибка: ${error.message}`, true);
                 loadOrdersFromGoogle();
